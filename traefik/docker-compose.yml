@@ -1,0 +1,87 @@
+version: '3.7'
+services:
+
+  traefik:
+    image: traefik:latest
+    container_name: traefik
+    restart: always
+    ports:
+      - 80:80
+      - 443:443
+    networks:
+      - traefik
+    command:
+      # 全局配置
+      - "--global.checkNewVersion=false"
+      - "--global.sendAnonymousUsage=false"
+      # ping
+      - "--ping=true"
+      # 日志
+      - "--log.level=debug"
+      - "--log.format=common"
+      - "--accesslog=true"
+      # api/dashboard
+      - "--api=true"
+      - "--api.insecure=true"
+      # Let’s Encrypt
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_ACCOUNT}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/acme/letsencrypt.json"
+      - "--certificatesresolvers.letsencrypt.acme.caServer=https://acme-v02.api.letsencrypt.org/directory"
+      - "--certificatesresolvers.letsencrypt.acme.dnschallenge=true"
+      - "--certificatesResolvers.letsencrypt.acme.dnsChallenge.provider=alidns"
+      - "--certificatesResolvers.letsencrypt.acme.dnsChallenge.resolvers=223.5.5.5"
+      # 入口点
+      - "--entryPoints.http.address=:80"
+      - '--entryPoints.http.http.redirections.entryPoint.to=https'
+      - '--entryPoints.http.http.redirections.entryPoint.scheme=https'
+      - "--entryPoints.https.address=:443"
+      - "--entrypoints.https.http.tls=true"
+      - "--entrypoints.https.http.tls.certResolver=letsencrypt"
+      - "--entrypoints.https.http.tls.domains[0].main=${MAIN_DOMAIN}"
+      - "--entrypoints.https.http.tls.domains[0].sans=*.${MAIN_DOMAIN}"
+      # 服务发现
+      # docker 形式服务发现，接入 traefik network
+      - "--providers.docker=true"
+      - "--providers.docker.watch=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.endpoint=unix:///var/run/docker.sock"
+      - "--providers.docker.swarmMode=false"
+      - "--providers.docker.useBindPortIP=false"
+      - "--providers.docker.network=traefik"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_acme:/acme/
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik"
+      # Traefik dashboard
+      - 'traefik.http.routers.traefik-dashboard.rule=Host(`traefik.${MAIN_DOMAIN}`)'
+      - 'traefik.http.routers.traefik-dashboard.entryPoints=https'
+      - 'traefik.http.routers.traefik-dashboard.tls=true'
+      - 'traefik.http.routers.traefik-dashboard.tls.certresolver=letsencrypt'
+      - "traefik.http.routers.traefik-dashboard.tls.domains[0].main=${MAIN_DOMAIN}"
+      - "traefik.http.routers.traefik-dashboard.tls.domains[0].sans=*.${MAIN_DOMAIN}"
+      - 'traefik.http.routers.traefik-dashboard.service=api@internal'
+      # allow cors-allow by subdomain of main domain
+      - "traefik.http.middlewares.cors-allow.headers.accesscontrolallowcredentials=true"
+      - "traefik.http.middlewares.cors-allow.headers.accesscontrolalloworiginlistregex=${MAIN_DOMAIN}$"
+      - "traefik.http.middlewares.cors-allow.headers.accesscontrolallowmethods=GET,POST,OPTIONS,PUT,DELETE"
+      - "traefik.http.middlewares.cors-allow.headers.accesscontrolmaxage=100"
+      - "traefik.http.middlewares.cors-allow.headers.addvaryheader=true"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider --proxy off localhost:8080/ping || exit 1"]
+      interval: 3s
+      timeout: 5s
+    env_file:
+      - .env
+
+volumes:
+   traefik_acme:
+
+networks:
+  traefik:
+    name: traefik
+    external: true
+
